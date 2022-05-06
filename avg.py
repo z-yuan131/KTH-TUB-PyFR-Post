@@ -16,7 +16,7 @@ class Average(object):
 
     def __init__(self):
         start  = 60.0  #60
-        end    = 90.0    #90
+        end    = 90.0   #90
         dt     = 0.1     #0.1
         tt = np.arange(start, end, dt)
         self.time = []
@@ -28,6 +28,7 @@ class Average(object):
         self.mesh = load_class(self.name).load_mesh()
 
         self.suffix_etype = ['hex','pri']
+        self.order = 4+1
 
 
     def load(self):
@@ -68,11 +69,12 @@ class Average(object):
 
                 etype = key.split('_')[0]
                 eid = key.split('_')[1]
+                rank_original = key.split('_')[2]
 
-                if f'{etype}_{rankn}_{eid}' in self.data.keys():
-                    self.data[f'{etype}_{rankn}_{eid}'] = np.concatenate((self.data[f'{etype}_{rankn}_{eid}'],np.array(f[key])[0]),axis=None)
+                if f'{etype}_{rankn}_{eid}_{rank_original}' in self.data.keys():
+                    self.data[f'{etype}_{rankn}_{eid}_{rank_original}'] = np.concatenate((self.data[f'{etype}_{rankn}_{eid}_{rank_original}'],np.array(f[key])[0]),axis=None)
                 else:
-                    self.data[f'{etype}_{rankn}_{eid}'] = np.array(f[key])[0]
+                    self.data[f'{etype}_{rankn}_{eid}_{rank_original}'] = np.array(f[key])[0]
                     #print(self.data[f'{etype}_{rankn}_{eid}'][0])
                     #print(np.array(f[key])[0])
                     #print(np.concatenate((),axis=none))
@@ -82,7 +84,7 @@ class Average(object):
         #    etype = 'hex'
         #    print(rankn,f'{etype}_{rankn}_{eid}',self.data[f'{etype}_{rankn}_{eid}'])
         #return 0
-
+        #print(int(rankn[-1]))
 
 
         f.close()
@@ -92,7 +94,7 @@ class Average(object):
         self.average(rankn)
         print(str(rankn)+' finished')
         comm.Barrier()
-        if rankn == 'p0':
+        if rankn == 'p2':
             print('All finished')
         self.collect_all_data(rankn,comm)
 
@@ -110,20 +112,23 @@ class Average(object):
             soln = load_class(self.name).load_soln()
             #print(list(soln.keys()))
 
-            part0 = list(self.data.keys())[0].split('_')
-            part = f'soln_{part0[0]}_{part0[1]}'
-            partm = f'spt_{part0[0]}_{part0[1]}'
-
-            #print(part)
-
 
             for key in self.data.keys():
+
+                part0 = key.split('_')
+                part = f'soln_{part0[0]}_{part0[1]}'
+                partm = f'spt_{part0[0]}_{part0[1]}'
+
                 if len(key.split('_')) > 2:
 
                     if time == self.time[0]:
+
+
+
                         self.avgfield[key] = np.sum(soln[part][...,self.data[key]],axis=-1)
                         self.avgmesh[key] = np.sum(self.mesh[partm][:,self.data[key]],axis=-2)
                         self.length_spa[key].append(len(self.data[key]))
+                        #print(key,self.length_spa[key])
                     else:
                         self.avgfield[key] += np.sum(soln[part][...,self.data[key]],axis=-1)
 
@@ -143,8 +148,8 @@ class Average(object):
                         self.avgfield[key] += np.sum(sln.reshape(sln.shape[0],sln.shape[1],self.data[key][0].shape[0],self.data[key][0].shape[1]),axis=-1)
                     #print(np.sum(sln.reshape(sln.shape[0],sln.shape[1],self.data[key][0].shape[0],self.data[key][0].shape[1]),axis=-1).shape)
 
-            if rankn == 'p0':
-                #print(key,self.avgfield['hex_p0_1151'][0].shape)
+            if rankn == 'p7':
+                #print(key,self.avgfield['pri_p7_4827'].shape)
                 #print(key,self.avgfield['hex_p0'][0].shape)
                 #print(self.avgfield.keys())
                 #print(self.length_spa.keys())
@@ -180,43 +185,52 @@ class Average(object):
             #    self.write_to_file()
             comm.Barrier()
         """
-        if rankn == f'p0':
 
-            print('start to write to file')
+        if rankn == 'p0':
+            print(list(revbuff.keys()))
 
-            idlist = list()
+            print('\nstart to write_to_file\n')
+
             idsln = defaultdict(list)
             idmsh = defaultdict(list)
-            #print(list(revbuff.keys()))
+            idranklist = list()
+
             for key in revbuff.keys():
-                eid = key.split('_')[-1]
-                if len(key.split('_')) > 2 and eid not in idlist:
-                    #print(key)
-                    #keyname = f'other_{eid}'
-                    tele = revbuff[key]
-                    mele = revmshbuff[key]
-                    idlist.append(eid)
-                    #print(idlist)
+                eid = key.split('_')[-2]
+                etype = key.split('_')[0]
+                orank = key.split('_')[-1]
+                if len(key.split('_')) > 2 and f'{eid}_{orank}' not in idranklist:
+                    esln = revbuff[key]
+                    emsh = revmshbuff[key]
+
+                    idranklist.append(f'{eid}_{orank}')
+
                     for key2 in revbuff.keys():
-                        if key2.split('_')[-1] == eid and key2 != key:
-                            #print(key,key2)
-                            tele += revbuff[key]
-                            mele += revmshbuff[key]
+                        if key2.split('_')[-2] == eid and key2 != key and key2.split('_')[0] == etype and key2.split('_')[-1] == orank:
+                            esln += revbuff[key2]
+                            emsh += revmshbuff[key2]
 
-                    #print(tele.shape,mele.shape,self.length_spa['hex_p0'])
-
-                    sln = np.sum(tele.reshape((25,5,tele.shape[1]),order='F'),axis=1)
-                    msh = np.sum(mele.reshape((25,5,mele.shape[1]),order='F'),axis=1)
-                    idsln['others'].append(sln/len(self.time)/self.length_spa['hex_p0']/5)
-                    idmsh['others'].append(msh/self.length_spa['hex_p0']/5)
+                    # average inside the element
+                    print(etype,emsh.shape)
+                    sln = np.sum( esln.reshape( (int(esln.shape[0]/self.order),self.order,esln.shape[1]),order='F') ,axis=1)
+                    msh = np.sum( emsh.reshape( (int(emsh.shape[0]/self.order),self.order,emsh.shape[1]),order='F') ,axis=1)
+                    # normalised by time, nele in z direction and inside an element
+                    idsln[f'others_{etype}'].append(sln/len(self.time)/self.length_spa['hex_p0']/self.order)
+                    idmsh[f'others_{etype}'].append(msh/self.length_spa['hex_p0']/self.order)
 
                 elif len(key.split('_')) == 2:
-                    sln = np.sum(revbuff[key].reshape((25,5,revbuff[key].shape[1],revbuff[key].shape[2]),order='F'),axis=1)
-                    self.write_to_file(sln/len(self.time)/self.length_spa['hex_p0']/5,key)
-                    self.write_to_file(revmshbuff[key][:25]/self.length_spa['hex_p0'],f'{key}mesh')
-            # write keyname 'others'
-            self.write_to_file(idsln['others'],'others')
-            self.write_to_file(idmsh['others'],'othersmesh')
+
+                    sln = np.sum( revbuff[key].reshape( (int(revbuff[key].shape[0]/self.order),self.order,revbuff[key].shape[1],revbuff[key].shape[2]) ,order='F') ,axis=1)
+                    msh = np.sum( revmshbuff[key].reshape( (int(revmshbuff[key].shape[0]/self.order),self.order,revmshbuff[key].shape[1],revmshbuff[key].shape[2]) ,order='F') ,axis=1)
+
+                    self.write_to_file(sln/len(self.time)/self.length_spa['hex_p0']/self.order,key)
+                    self.write_to_file(msh/self.length_spa['hex_p0']/self.order,f'{key}mesh')
+
+            # write keyname 'others_etype'
+            for key in idsln.keys():
+                if key.split('_')[0] == 'others':
+                    self.write_to_file(idsln[key],key)
+                    self.write_to_file(idmsh[key],f'{key}mesh')
 
 
 
@@ -225,6 +239,6 @@ class Average(object):
     def write_to_file(self,msh,key):
         #print(key,msh.shape)
         print(key)
-        with h5py.File('random1.zhenyang','a') as f:
+        with h5py.File('final.zhenyang','a') as f:
             f.create_dataset(f'{key}', data=msh)
             f.close()

@@ -106,6 +106,7 @@ class localConMain(object):
                 print(m,m/pindex.shape[1])
 
         #print(self.extmesh.keys())
+
         comm.Barrier()
 
         for iter in range(100):
@@ -155,8 +156,8 @@ class localConMain(object):
                 extmesh_temp.append(con_eid[jl,jr])
                 jl,jr,_f = self.find_neighbour(con_etype[jl,jr],con_fid[jl,jr],con_eid[jl,jr],con_etype,con_eid,con_fid,con_pid,test)
 
-        #if test:
-        #    print(rankn,flag,extmesh_temp)
+        if test and etype == 'pri':
+            print(rankn,flag,extmesh_temp,origin)
         if flag and not origin:  # not finished but from the first interation
             self.extmesh[f'{etype}_{eid}_{rankn}_{jl}'].append(extmesh_temp)
         elif flag and origin:    # not finished from other iteration
@@ -174,6 +175,7 @@ class localConMain(object):
         revbuff = defaultdict(list)
 
         for key in self.extmesh:
+            flag = None
             if len(key.split('_')) > 2*(iter+1) and int(key.split('_')[-1]) != -1:
                 etype = key.split('_')[0]
                 #rank = key.split('_')[2]
@@ -188,14 +190,21 @@ class localConMain(object):
 
                     if npartid.size > 0:
                         for j in npartid:
-                            #print(self.face[etype][fid],con_fid_bc[i][j])
+
+                            # test
+                            if int(key.split('_')[1]) == 591:
+                                print(fid,self.face[etype][fid],con_fid_bc[i][j],eid,con_eid_bc[i][j],i,self.extmesh[key][0][-1])
+
+
                             if con_fid_bc[i][j] == self.face[etype][fid] and con_etype_bc[i][j] == etype:
 
                                 npart = i.split('_')[1]
-                                #print(i,con_eid_bc[i][j],npart)
+                                #print(i,j,con_eid_bc[i][j],npart)
                                 sendbuff[f'{npart[:2]}_{npart[2:]}'].append(list((j,key)))
+                                flag = 1
                                 break
-                        break
+                        if flag:
+                            break
 
 
 
@@ -207,7 +216,7 @@ class localConMain(object):
         if revbuff:
             for key in revbuff.keys():
                 if rankn == key.split('_')[-1]:
-                    print(revbuff[key])
+                    #print(revbuff[key])
                     for eleid, origin in revbuff[key]:
 
                         pl = key.split('_')[0]
@@ -224,6 +233,7 @@ class localConMain(object):
                         #print(eid,fid,pid)
                         #print(origin)
                         if etype != origin.split('_')[0]:
+                            print('It is not extruded mesh')
                             raise ValueError('stop1')
                         self.extmeshM0(etype,fid,eid,rankn,con_etype,con_eid,con_fid,con_pid,origin,True)
 
@@ -255,7 +265,7 @@ class localConMain(object):
         for i in range(size):
             if i == rank:
 
-                with h5py.File('random2.zhenyang', 'a') as f:
+                with h5py.File('te.zhenyang', 'a') as f:
                     for k in self.extmesh.keys():
                         print(k)
                         #print(k,mesh[k])
