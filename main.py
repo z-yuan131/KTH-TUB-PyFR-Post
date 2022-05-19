@@ -5,6 +5,7 @@ import sys
 
 from localCon import localConMain
 from avg import Average
+from spod import spod_avg_z, spod_time
 #from test import test_mpi
 
 
@@ -16,17 +17,12 @@ def main():
     # main solver
     #localConMain().load_connectivity()
 
-    Average().load()
-    #def extract_normal_neighbour(self,etype,eid,fid,bpart):
+    # avgerage in space (span) and in time
+    #Average().load()
 
-
-
-    #def extract_period_neighbour(self,etype,eid,fid,bpart):
-
-
-
-    #def periodic(self,info,pfid,eid,connection):
-
+    # do spod with averaged data in span
+    #spod_avg_z().load()
+    spod_time().load(f'./series/')
 
 
 

@@ -265,7 +265,7 @@ class localConMain(object):
         for i in range(size):
             if i == rank:
 
-                with h5py.File('te.zhenyang', 'a') as f:
+                with h5py.File('con.zhenyang', 'a') as f:
                     for k in self.extmesh.keys():
                         print(k)
                         #print(k,mesh[k])

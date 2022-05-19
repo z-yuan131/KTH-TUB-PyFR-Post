@@ -59,7 +59,7 @@ class Average(object):
 
 
 
-        f = h5py.File('random2.zhenyang','r')
+        f = h5py.File('con.zhenyang','r')
         # do some reordering to the data
         self.data= defaultdict(list)
         for key in f.keys():
