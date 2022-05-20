@@ -17,7 +17,7 @@ class spod_avg_z(object):
 
     def __init__(self):
         start  = 60.0  #60
-        end    = 64.1   #90
+        end    = 70.0   #90
         dt     = 0.1     #0.1
         tt = np.arange(start, end, dt)
         self.time = []
@@ -233,8 +233,9 @@ class spod_time(spod_avg_z):
 
         Nt = len(self.time)
         NFFT = 8
-        Novlp = NFFT / 2
+        Novlp = int(NFFT / 2)
         Nblk = np.floor((Nt - Novlp)/(NFFT - Novlp))
+        FreqofInterest = 5 # fs = 1/dt, fmax = fs/2
 
         self.data = defaultdict()
         for time in self.time:
@@ -251,3 +252,163 @@ class spod_time(spod_avg_z):
             f.close()
         if rankn == 'p0':
             print(self.data['hex_p0'].shape)
+
+
+        self.eigen = defaultdict()
+
+        for key in self.data.keys():
+            # reshape data to reduce matrix dimension
+            shape = self.data[key].shape
+            self.data[key] = self.data[key].reshape((shape[0]*shape[1]*shape[2],shape[3]))
+            # create Creat_blocks
+            self.data[key] = self.Creat_blocks(self.data[key],NFFT,Novlp,rankn)
+            # foriour transform of data block
+            self.data[key] = self.block_DFT(self.data[key],rankn)
+            # collect data at each frequency
+            self.data[key] = self.creat_freq_blocks(self.data[key],FreqofInterest,rankn)
+            # do svd to these frequency blocks
+            self.data[key],self.eigen[f'{key}_eigen'] = self.SPOD_SVD(self.data[key],rankn)
+            # reshape to readable format
+            #self.data[key] = self.data[key].reshape((shape[0],shape[1],shape[2],shape[3]))
+        # wrtie to file
+        for rank in range(comm.Get_size()):
+            if f'p{rank}' == rankn:
+                self.write_to_file(self.data,'SPOD.zhenyang')
+                self.write_to_file(self.eigen,'SPOD.zhenyang')
+            comm.Barrier()
+
+
+
+    def Creat_blocks(self,var,NFFT,Novlp,rankn):
+        # -----------------------------------------------------------------
+        # generate blocks
+        if rankn == 'p0':
+            print('-------------------------------------------------')
+            print('Divide the varible into blocks using \'NFFT\' and \'overlap\' parameters')
+            print('-------------------------------------------------')
+
+        Nblocks = int(np.floor((len(self.time) - Novlp)/(NFFT - Novlp)))
+        print('Number of blocks: '+str(Nblocks))
+        if Nblocks < 1:
+            raise ValueError('No mate, input NFFT is larger than total time, it is not gonna work')
+
+        blocks = np.zeros([var.shape[0],NFFT,Nblocks],dtype = 'complex_')   # blocks.shape = npts,nfft,blockid
+        for i in range(Nblocks):
+            blocks[:,:,i] = var[:,int(i*NFFT-i*Novlp):int((i+1)*NFFT-i*Novlp)]
+
+        if rankn == 'p0':
+            print('block shape: '+str(blocks.shape))
+            print('-------------------------------------------------')
+        return blocks
+
+    def hamming_window(self, N):
+        '''
+            Standard Hamming window of length N
+        '''
+        x = np.arange(0,N,1)
+        window = (0.54 - 0.46 * np.cos(2 * np.pi * x / (N-1)) ).T
+        return window
+
+
+    def block_DFT(self, blocks,rankn):
+        if rankn == 'p0':
+            print('-------------------------------------------------')
+            print('Do DFT to each block')
+            print('-------------------------------------------------')
+
+
+        #blockHat = np.zeros([blocks.shape[0],blocks.shape[1],blocks.shape[2]],dtype = 'complex_')
+
+        window = self.hamming_window(blocks.shape[1])
+
+        if rankn == 'p0':
+            print('Compeleted blocks: ')
+        for i in tqdm(range(blocks.shape[2])):   #block.shape[2] == Nblocks
+            #blockHat[:,:,i] = pyfftw.interfaces.numpy_fft.fftn(blocks[:,:,i],axes=1)*window  #this could be faster
+            blocks[:,:,i] = np.fft.fft(blocks[:,:,i]*window ,axis=1)  #overwrite
+        if rankn == 'p0':
+            print('blockHat shape: '+str(blocks.shape))
+            print('-------------------------------------------------')
+        return blocks
+
+    def creat_freq_blocks(self,blockHat,FreqofInterest,rankn):
+        if rankn == 'p0':
+            print('-------------------------------------------------')
+            print('Assemble the data matrix in frequency domain: Qhat.shape = [npts,Nblocks,Nfrequencies]')
+            print('-------------------------------------------------')
+        Qhat = np.zeros([blockHat.shape[0],blockHat.shape[2],FreqofInterest],dtype = 'complex_')  # for memory problem FreqofInterest << blockHat.shape[1]
+        for i in range(FreqofInterest):
+            for j in range(blockHat.shape[2]):
+                Qhat[:,j,i] = blockHat[:,i,j]
+        if rankn == 'p0':
+            print('Qhat block shape: '+str(Qhat.shape))
+            print('-------------------------------------------------')
+        return Qhat
+
+    def SPOD_SVD(self,Qhat,rankn):
+        if rankn == 'p0':
+            print('-------------------------------------------------')
+            print('Compute inner production to each block')
+            print('-------------------------------------------------')
+
+            print('Compeleted frequencies: ')
+
+        A = np.zeros([Qhat.shape[1],Qhat.shape[1],Qhat.shape[2]],dtype = 'complex_')
+        #Weight = BuildWieghtMatrix(TypeofWeight,Nvars,shape = Qhat.shape[0])
+        for i in tqdm(range(Qhat.shape[2])):
+            """
+                a = blockHat[:,:,i]
+                b = np.matmul(a.T,a)
+            """
+            #A[:,:,i] = np.dot(np.dot(Qhat[:,:,i].conj().T,Weight) , Qhat[:,:,i])/(Qhat.shape[1] - 1)    #using matmul could be super slow
+            A[:,:,i] = np.dot(Qhat[:,:,i].conj().T , Qhat[:,:,i])#/(Qhat.shape[1] - 1)    #using matmul could be super slow
+
+        if rankn == 'p0':
+            print(A.shape)
+            print('-------------------------------------------------')
+
+
+            print('-------------------------------------------------')
+            print('Compute the eigenvectors and engenvalues of A')
+            print('-------------------------------------------------')
+
+        w = np.zeros([A.shape[1],A.shape[2]],dtype='complex_')
+        v = np.zeros([A.shape[1],A.shape[1],A.shape[2]],dtype='complex_')
+        for i in range(A.shape[2]):
+            w[:,i], v[:,:,i] = np.linalg.eig(A[:,:,i])    # w is eigenvalue, v[:,:,i] is normaöized eigenvector of w[:,i]
+
+        del A ## clear the memory
+
+        ## check routine
+        for j in range(w.shape[1]):
+            for i in w[:,j]:
+                if i < 0:
+                    print('Warning!: eignevalue is smaller than 0: eig = ' + str(i))
+                    if abs(i) < 10e-5:
+                        print('Warning!: eignevalue is significantly close to zero, take absolute value!')
+
+                    else:
+                        raise ValueError('Error!: Check with eigenvalue, programme exits...')
+
+
+        if rankn == 'p0':
+            print('-------------------------------------------------')
+            print('Formulate eq9 in Andre\'s paper (performing the SVD)')
+            print('-------------------------------------------------')
+
+
+        sig = np.zeros([w.shape[0],w.shape[0],w.shape[1]],dtype='complex_')
+        for i in range(w.shape[1]):
+            for j in range(w.shape[0]):
+                if w[j,i] == 0:
+                    sig[j,j,i] = 0
+                else:
+                    sig[j,j,i] = 1/np.sqrt(w[j,i])
+
+        Phi = np.zeros([Qhat.shape[0],Qhat.shape[1],Qhat.shape[2]],dtype='complex_')
+        for i in range(Qhat.shape[2]):
+            Phi[:,:,i] = np.dot(np.dot(Qhat[:,:,i],v[:,:,i]),sig[:,:,i])
+
+        if rankn == 'p0':
+            print('-------------------Done!------------------------')
+        return Phi,w
