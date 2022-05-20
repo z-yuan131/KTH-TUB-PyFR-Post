@@ -17,7 +17,7 @@ class spod_avg_z(object):
 
     def __init__(self):
         start  = 60.0  #60
-        end    = 70.0   #90
+        end    = 90.0   #90
         dt     = 0.1     #0.1
         tt = np.arange(start, end, dt)
         self.time = []
@@ -269,7 +269,7 @@ class spod_time(spod_avg_z):
             # do svd to these frequency blocks
             self.data[key],self.eigen[f'{key}_eigen'] = self.SPOD_SVD(self.data[key],rankn)
             # reshape to readable format
-            #self.data[key] = self.data[key].reshape((shape[0],shape[1],shape[2],shape[3]))
+            self.data[key] = self.data[key].reshape((shape[0],shape[1],shape[2],self.data[key].shape[-2],self.data[key].shape[-1]))
         # wrtie to file
         for rank in range(comm.Get_size()):
             if f'p{rank}' == rankn:
