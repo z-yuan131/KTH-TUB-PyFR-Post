@@ -200,6 +200,33 @@ class spod_avg_z(object):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+""" not working from now"""
+
+
+
+
+
+
+
+
 class spod_time(spod_avg_z):
     def __init__(self):
         super().__init__()
@@ -232,7 +259,7 @@ class spod_time(spod_avg_z):
 
 
         Nt = len(self.time)
-        NFFT = 8
+        NFFT = 64
         Novlp = int(NFFT / 2)
         Nblk = np.floor((Nt - Novlp)/(NFFT - Novlp))
         FreqofInterest = 5 # fs = 1/dt, fmax = fs/2

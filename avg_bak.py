@@ -9,7 +9,6 @@ import sys
 
 import h5py
 
-from gra import BaseGrad,BaseGrad2
 
 from loadload import load_class
 
@@ -17,17 +16,16 @@ class Average(object):
 
     def __init__(self):
         start  = 60.0  #60
-        end    = 60.1   #90
+        end    = 90.0   #90
         dt     = 0.1     #0.1
         tt = np.arange(start, end, dt)
         self.time = []
         for i in range(len(tt)):
             self.time.append("{:.4f}".format(tt[i]))
 
-        self.name = ['../../Re5e4/naca0012.ini','../../Re5e4/mesh.pyfrm','./pyfrs/naca0012_60.0000.pyfrs']
+        self.name = ['naca0012.ini','../../Re5e4/mesh.pyfrm','./pyfrs/naca0012_60.0000.pyfrs']
         self.name[-1] = f'../../Re5e4/pyfrs/naca0012_{self.time[0]}.pyfrs'
         self.mesh = load_class(self.name).load_mesh()
-        self.cfg = load_class(self.name).load_ini()
 
         self.suffix_etype = ['hex','pri']
         self.order = 4+1
@@ -107,14 +105,12 @@ class Average(object):
         self.avgmesh = defaultdict()
         self.length_spa = defaultdict(list)
 
-
         # first average in space while loading each snapshot:
         for time in self.time:
             # average in space each rank:
             self.name[-1] = f'../../Re5e4/pyfrs/naca0012_{time}.pyfrs'
-            Mysoln = load_class(self.name).load_soln()
+            soln = load_class(self.name).load_soln()
             #print(list(soln.keys()))
-
 
 
             for key in self.data.keys():
@@ -124,36 +120,31 @@ class Average(object):
                 partm = f'spt_{part0[0]}_{part0[1]}'
 
                 if len(key.split('_')) > 2:
-                    sln = Mysoln[part][...,self.data[key]]
-                    msh = self.mesh[partm][:,self.data[key]]
-
-                    #print(part0[0], msh.shape, sln.shape,list(self.mesh.keys()))
-
-                    #sln = BaseGrad(self.cfg, self.mesh, Mysoln)._pre_proc_fields_grad(part0[0], msh, sln)
-                    sln = BaseGrad2(self.cfg)._pre_proc_fields_grad(part0[0], msh, sln)
 
                     if time == self.time[0]:
 
 
-                        self.avgfield[key] = np.sum(sln,axis=-1)
-                        self.avgmesh[key] = np.sum(msh,axis=-2)
+
+                        self.avgfield[key] = np.sum(soln[part][...,self.data[key]],axis=-1)
+                        self.avgmesh[key] = np.sum(self.mesh[partm][:,self.data[key]],axis=-2)
                         self.length_spa[key].append(len(self.data[key]))
                         #print(key,self.length_spa[key])
                     else:
-                        self.avgfield[key] += np.sum(sln,axis=-1)
+                        self.avgfield[key] += np.sum(soln[part][...,self.data[key]],axis=-1)
 
                 else:
-                    shape1 = self.data[key][0].reshape(self.data[key][0].shape[0]*self.data[key][0].shape[1])
 
-                    sln = Mysoln[part][...,shape1]
-                    msh = self.mesh[partm][:,shape1]
-
-
+                    #print(self.data[key][0].shape)
                     if time == self.time[0]:
+                        shape1 = self.data[key][0].reshape(self.data[key][0].shape[0]*self.data[key][0].shape[1])
+                        sln = soln[part][...,shape1]
+                        msh = self.mesh[partm][:,shape1]
                         self.avgfield[key] = np.sum(sln.reshape(sln.shape[0],sln.shape[1],self.data[key][0].shape[0],self.data[key][0].shape[1]),axis=-1)
                         self.avgmesh[key] = np.sum(msh.reshape(msh.shape[0],self.data[key][0].shape[0],self.data[key][0].shape[1],msh.shape[-1]),axis=-2)
                         self.length_spa[key].append(min(self.data[key][0].shape))
                     else:
+                        shape1 = self.data[key][0].reshape(self.data[key][0].shape[0]*self.data[key][0].shape[1])
+                        sln = soln[part][...,shape1]
                         self.avgfield[key] += np.sum(sln.reshape(sln.shape[0],sln.shape[1],self.data[key][0].shape[0],self.data[key][0].shape[1]),axis=-1)
                     #print(np.sum(sln.reshape(sln.shape[0],sln.shape[1],self.data[key][0].shape[0],self.data[key][0].shape[1]),axis=-1).shape)
 
