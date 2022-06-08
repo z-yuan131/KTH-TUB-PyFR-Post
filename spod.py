@@ -88,6 +88,36 @@ class spod_avg_z(object):
         #    print('All finished')
         #self.collect_all_data(rankn,comm)
 
+    def get_right_keys(self, mesh_info):
+        ele = defaultdict()
+        eid = defaultdict()
+        cut_index = defaultdict()
+        for key in mesh_info.keys():
+            #get right element:
+            if key.split('_')[0] == 'spt' and  key.split('_')[1] == 'tet':# or  key.split('_')[1] == 'pyr':
+                part_name = f'con_{key.split("_")[-1]}'
+                con = mesh_info[part_name]
+                con_etype = con[['f0']].astype('U4')
+                con_eid = con[['f1']].astype('i4')
+                con_fid = con[['f2']].astype('i1')
+                con_pid = con[['f3']].astype('i2')
+                index1 = np.where(con_pid == -1)
+                index2 = np.where(con_etype[index1] == key.split('_')[1])[0]
+
+                index = (index1[0][index2],index1[1][index2])
+                #print(index)
+
+                keysoln = f'tet_{key.split("_")[-1]}'
+                eid[keysoln] = con_eid[index]
+                mesh = mesh_info[key]
+                ele[keysoln] = mesh[:,eid[keysoln]]
+                print(ele[keysoln].shape)
+
+        for key in ele.keys():
+            cut_index[key] = np.where(ele[key][...,2] < 10e-8)
+
+        return eid, ele, cut_index
+
 
     def average_z(self,rankn, comm):
         self.avgfield = defaultdict()
@@ -96,7 +126,11 @@ class spod_avg_z(object):
         self.avgmesh_t = defaultdict()
         self.length_spa = defaultdict(list)
 
-        # first average in span while loading each snapshot:
+        # for acoustics, it is 2D so just get one 2D slice is ok
+        eindex, ac_mesh, cut_index = self.get_right_keys(self.mesh)
+        acoustic_soln = defaultdict()
+        acoustic_mesh = defaultdict()
+
 
 
         for time in self.time:
@@ -141,23 +175,36 @@ class spod_avg_z(object):
                         msh = self.mesh[partm][:,shape1]
                         msh = np.sum(msh.reshape(msh.shape[0],self.data[key][0].shape[0],self.data[key][0].shape[1],msh.shape[-1]),axis=-2)
                         self.avgmesh[key] = np.sum( msh.reshape( (int(msh.shape[0]/self.order),self.order,msh.shape[1],msh.shape[2]),order='F') ,axis=1).swapaxes(1,2) / self.order / min(self.data[key][0].shape)
-            self.exchange_info(comm, rankn)
+            self.exchange_info(comm, rankn, time)
+
+            # acousitcs
+            for key in soln.keys():
+                if key.split('_')[0] == 'soln' and key.split('_')[1] == 'tet' and key.split('_')[-1] == rankn:
+                    keysoln = f'tet_{key.split("_")[-1]}'
+                    acoustic_soln[keysoln] = soln[key][...,eindex[keysoln]]
+                    acoustic_soln[keysoln] = acoustic_soln[keysoln][cut_index[keysoln][0],:,cut_index[keysoln][1]]
+                    if time == self.time[0]:
+                        keymesh = f'spt_tet_{key.split("_")[-1]}'
+                        acoustic_mesh[keysoln] = ac_mesh[keysoln][cut_index[keysoln]]
+
 
 
             for rank in range(comm.Get_size()):
                 if f'p{rank}' == rankn:
-                    dir = f'./series/time_series_{time}.zhenyang'
+                    dir = f'./series2/time_series_{time}.zhenyang'
                     self.write_to_file(self.avgfield, dir)
+                    self.write_to_file(acoustic_soln, dir)
                     if time == self.time[0]:
-                        dir = f'./series/time_series_{time}_mesh.zhenyang'
+                        dir = f'./series2/time_series_{time}_mesh.zhenyang'
                         self.write_to_file(self.avgmesh, dir)
+                        self.write_to_file(acoustic_mesh, dir)
 
                 comm.Barrier()
-            print(list(self.avgmesh.keys()))
+            print(list(self.avgfield.keys()))
 
 
 
-    def exchange_info(self, comm, rankn):
+    def exchange_info(self, comm, rankn, time):
         revbuff = defaultdict(list)
         revmshbuff = defaultdict(list)
         lengthbuff = defaultdict(list)
@@ -166,7 +213,8 @@ class spod_avg_z(object):
             if rankn == 'p0' and i == 0:
                 print('communication between ranks')
             revbuff.update(comm.bcast(self.avgfield_t, root=i))
-            revmshbuff.update(comm.bcast(self.avgmesh_t, root=i))
+            if time == self.time[0]:
+                revmshbuff.update(comm.bcast(self.avgmesh_t, root=i))
             lengthbuff.update(comm.bcast(self.length_spa, root=i))
             comm.Barrier()
 
@@ -181,12 +229,14 @@ class spod_avg_z(object):
                     ksp2 = key2.split('_')
                     if ksp2[2] == ksp1[2] and ksp2[1] != ksp2[-1] and ksp2[0] == ksp1[0] and ksp2[-1] == ksp1[-1]:
                         revbuff[key1] += revbuff[key2]
-                        revmshbuff[key1] += revmshbuff[key2]
+                        if time == self.time[0]:
+                            revmshbuff[key1] += revmshbuff[key2]
                         length += np.array(lengthbuff[key2])
                 if rankn == ksp1[-1]:
                     #print(self.length_spa[key1])
                     self.avgfield[f'{ksp1[0]}_{ksp1[1]}'] = np.dstack((self.avgfield[f'{ksp1[0]}_{ksp1[1]}'], revbuff[key1] / length / self.order))
-                    self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'] = np.dstack((self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'], revmshbuff[key1] / length / self.order))
+                    if time == self.time[0]:
+                        self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'] = np.dstack((self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'], revmshbuff[key1] / length / self.order))
                     #self.avgfield[f'{ksp1[0]}_{ksp1[1]}'] = np.concatenate((self.avgfield[f'{ksp1[0]}_{ksp1[1]}'],revbuff[key1] / self.length_spa[key1] / self.order),axis=-1)
                     #self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'] = np.append(self.avgmesh[f'{ksp1[0]}_{ksp1[1]}'],revmshbuff[key1] / self.length_spa[key1] / self.order)
 
@@ -194,7 +244,11 @@ class spod_avg_z(object):
     def write_to_file(self,msh,dir):
         with h5py.File(dir,'a') as f:
             for key in msh.keys():
-                f.create_dataset(f'{key}', data=msh[key])
+                if len(msh[key].shape) > 2:
+                    msh[key] = msh[key].swapaxes(1,2)
+                #f.create_dataset(f'{key}', data=msh[key])
+                f.create_dataset(f'{key}', data=msh[key].reshape(-1, msh[key].shape[-1]))
+
             f.close()
 
 

@@ -19,10 +19,10 @@ def main():
     #localConMain().load_connectivity()
 
     # avgerage in space (span) and in time
-    Average().load()
+    #Average().load()
 
     # do spod with averaged data in span
-    #spod_avg_z().load()
+    spod_avg_z().load()
     #spod_time().load(f'./series/')
 
 
