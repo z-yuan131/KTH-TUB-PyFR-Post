@@ -23,8 +23,8 @@ class localConMain(object):
         for i in range(len(tt)):
             time.append("{:.4f}".format(tt[i]))
 
-        name = ['naca0012.ini','../../Re5e4/mesh.pyfrm','./pyfrs/naca0012_60.0000.pyfrs']
-        name[-1] = f'../../Re5e4/pyfrs/naca0012_{time[0]}.pyfrs'
+        name = ['naca0012.ini','../../Re5e4/gradient/mesh.pyfrm','./pyfrs/naca0012_60.0000.pyfrs']
+        name[-1] = f'../../Re5e4/pyfrs/gradient/datafiles_136.80.pyfrs'
         self.mesh = load_class(name).load_mesh()
 
 
@@ -265,7 +265,7 @@ class localConMain(object):
         for i in range(size):
             if i == rank:
 
-                with h5py.File('con.zhenyang', 'a') as f:
+                with h5py.File('con2.zhenyang', 'a') as f:
                     for k in self.extmesh.keys():
                         print(k)
                         #print(k,mesh[k])

@@ -16,13 +16,13 @@ from spod import spod_avg_z, spod_time
 
 def main():
     # main solver
-    #localConMain().load_connectivity()
+    localConMain().load_connectivity()
 
     # avgerage in space (span) and in time
     #Average().load()
 
     # do spod with averaged data in span
-    spod_avg_z().load()
+    #spod_avg_z().load()
     #spod_time().load(f'./series/')
 
 
