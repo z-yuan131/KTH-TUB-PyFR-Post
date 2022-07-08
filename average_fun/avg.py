@@ -25,7 +25,7 @@ class avgcls(BaseAvg):
         size = comm.Get_size()
 
 
-        f = h5py.File('midfile.zhenyang','r')
+        f = h5py.File('./midfile.zhenyang','r')
         # do some reordering to the data
         self.data = defaultdict()
         self.mpiMap = list()
@@ -122,6 +122,8 @@ class avgcls(BaseAvg):
                     keysoln = f'tet_{key.split("_")[-1]}'
                     acoustic_soln[keysoln] = Mysoln[key][...,eindex[keysoln]]
                     acoustic_soln[keysoln] = acoustic_soln[keysoln][cut_index[keysoln][0],:,cut_index[keysoln][1]]
+                    if self.dataprefix == 'soln':
+                        acoustic_soln[keysoln] = np.array(self.con_to_pri(acoustic_soln[keysoln])).swapaxes(0,1)
                     if time == self.time[0]:
                         keymesh = f'spt_tet_{key.split("_")[-1]}'
                         acoustic_mesh[keysoln] = ac_mesh[keysoln][cut_index[keysoln]]
@@ -130,11 +132,11 @@ class avgcls(BaseAvg):
 
             for i in range(comm.Get_size()):
                 if i == rank:
-                    dir = f'./series3/time_series_{time}.zhenyang'
+                    dir = f'../series3/time_series_{time}.zhenyang'
                     self.write_to_file(self.avgfield_writeout, dir)
                     self.write_to_file(acoustic_soln, dir)
                     if time == self.time[0]:
-                        dir = f'./series3/time_series_{time}_mesh.zhenyang'
+                        dir = f'../series3/time_series_{time}_mesh.zhenyang'
                         self.write_to_file(self.avgmesh_writeout, dir)
                         self.write_to_file(acoustic_mesh, dir)
 
@@ -203,17 +205,44 @@ class avgcls(BaseAvg):
 
     def construct_soln_field(self, Mysoln, rank):
         soln = defaultdict()
-        for key in Mysoln:
-            if len(key.split('_')) > 2:
-                _prefix, etype, prank = key.split('_')
-                if etype in self.suffix_etype and prank == f'p{rank}':
-                    # Mysoln has structure like: rho,u,v,w,p,du/dx,du/dy,dv/dx,dv/dy,dw/dx,dw/dy
-                    soln[f'{etype}_{prank}'] = Mysoln[key]
-                    reynold_stress = np.einsum('ijk,ilk->ijlk',Mysoln[key][:,1:4],Mysoln[key][:,1:4]).reshape(Mysoln[key].shape[0],-1,Mysoln[key].shape[-1])
-                    soln[f'{etype}_{prank}'] = np.concatenate((soln[f'{etype}_{prank}'],reynold_stress),axis = 1)
+        if self.dataprefix == 'snapshot':
+            # For time averaged data output with instant mode
+            for key in Mysoln:
+                if len(key.split('_')) > 2:
+                    _prefix, etype, prank = key.split('_')
+                    if etype in self.suffix_etype and prank == f'p{rank}':
+                        # Mysoln has structure like: rho,u,v,w,p,du/dx,du/dy,dv/dx,dv/dy,dw/dx,dw/dy
+                        soln[f'{etype}_{prank}'] = Mysoln[key]
+                        reynold_stress = np.einsum('ijk,ilk->ijlk',Mysoln[key][:,1:4],Mysoln[key][:,1:4]).reshape(Mysoln[key].shape[0],-1,Mysoln[key].shape[-1])
+                        soln[f'{etype}_{prank}'] = np.concatenate((soln[f'{etype}_{prank}'],reynold_stress),axis = 1)
 
-                    #print(soln[f'{etype}_{prank}'].shape)
+                        #print(soln[f'{etype}_{prank}'].shape)
+        else:
+            # For the normal write out data with conservative format
+            for key in Mysoln:
+                if len(key.split('_')) > 2:
+                    _prefix, etype, prank = key.split('_')
+                    if etype in self.suffix_etype and prank == f'p{rank}':
+                        # Mysoln has structure like: rho,rhou,rhov,rhow,E
+                        soln[f'{etype}_{prank}'] = Mysoln[key]
+                        soln[f'{etype}_{prank}'] = np.array(self.con_to_pri(soln[f'{etype}_{prank}'])).swapaxes(0,1)
+                        print('checkout routine:', soln[f'{etype}_{prank}'].shape)
         return soln
+
+    def con_to_pri(self, cons):
+        cons = cons.swapaxes(0,1)
+        rho, E = cons[0], cons[-1]
+
+        # Divide momentum components by rho
+        vs = [rhov/rho for rhov in cons[1:-1]]
+
+        # Compute the pressure
+        gamma = self.cfg.getfloat('constants', 'gamma')
+        p = (gamma - 1)*(E - 0.5*rho*sum(v*v for v in vs))
+
+        return [rho] + vs + [p]
+
+
 
 
 

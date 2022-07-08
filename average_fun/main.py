@@ -10,8 +10,11 @@ from avg import avgcls
 
 def main():
 
-    solnname = '../../Re5e4/gradient/datafiles_136.80.pyfrs'
-    meshname = '../../Re5e4/gradient/mesh.pyfrm'
+    solnname = '../../../Re5e4/gradient/datafiles_136.80.pyfrs'
+    meshname = '../../../Re5e4/gradient/mesh.pyfrm'
+
+    solnname = '../../../Re5e4/pyfrs/naca0012_60.0000.pyfrs'
+    meshname = '../../../Re5e4/mesh.pyfrm'
 
 
 

@@ -17,11 +17,12 @@ class BaseAvg(object):
                                (args.solnf, args.meshf))
 
         # Load the configuration and stats files
-        #self.cfg = Inifile(self.soln['config'])
-        #self.stats = Inifile(self.soln['stats'])
+        self.cfg = Inifile(soln['config'])
+        self.stats = Inifile(soln['stats'])
 
         # Data file prefix (defaults to soln for backwards compatibility)
-        #self.dataprefix = self.stats.get('data', 'prefix', 'tavg')
+        self.dataprefix = self.stats.get('data', 'prefix', 'tavg')
+        #print(self.cfg)
 
         # Get element types and array shapes
         self.mesh_inf = self.mesh.array_info('spt')
@@ -38,16 +39,17 @@ class BaseAvg(object):
         self.suffix_etype = ['hex','pri']
 
 
-        start  = 136.8  #60
-        end    = 136.9   #90
+        start  = 60.0  #60
+        end    = 99.99   #90
         dt     = 0.1     #0.1
 
         tt = np.arange(start, end, dt)
         self.time = list()
         for i in range(len(tt)):
-            self.time.append("{:.2f}".format(tt[i]))
+            self.time.append("{:.4f}".format(tt[i]))
 
 
     def soln_loader(self, time):
-        name = f'../../Re5e4/gradient/datafiles_{time}.pyfrs'
+        #name = f'../../../Re5e4/gradient/datafiles_{time}.pyfrs'
+        name = f'../../../Re5e4/pyfrs/naca0012_{time}.pyfrs'
         return NativeReader(name)
