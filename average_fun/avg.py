@@ -1,5 +1,5 @@
 from pyfr.shapes import BaseShape
-from pyfr.util import lazyprop, subclass_where
+from pyfr.util import subclass_where
 
 
 from collections import defaultdict
@@ -25,7 +25,7 @@ class avgcls(BaseAvg):
         size = comm.Get_size()
 
 
-        f = h5py.File('./midfile.zhenyang','r')
+        f = h5py.File('../midfile.zhenyang','r')
         # do some reordering to the data
         self.data = defaultdict()
         self.mpiMap = list()
@@ -88,6 +88,37 @@ class avgcls(BaseAvg):
 
 
 
+    def interpo_soln_pre(self, rank):
+
+        Mysoln = self.soln_loader(self.time[0])
+
+        soln_op = defaultdict()
+        for key in Mysoln:
+            if len(key.split('_')) == 3:
+                _prefix, etype, part = key.split('_')
+
+                if part == f'p{rank}':
+
+                    nspts = Mysoln[key].shape[0]
+                    svpts = self.get_std_ele(etype, nspts)
+                    soln_op[key] = self.get_soln_op(etype, nspts, svpts)
+
+
+        return soln_op
+
+
+    def interpo_soln(self, Mysoln, soln_op):
+        soln = defaultdict()
+
+        for key in Mysoln:
+            if key in soln_op.keys():
+                print(key,soln_op[key].shape,Mysoln[key].shape)
+                soln[key] = np.einsum('ij, jkl -> ikl',soln_op[key],Mysoln[key])
+
+        return soln
+
+
+
     def average_main(self,rank, comm):
         self.avgfield = defaultdict()
         self.avgmesh = defaultdict()
@@ -99,6 +130,7 @@ class avgcls(BaseAvg):
         acoustic_soln = defaultdict()
         acoustic_mesh = defaultdict()
 
+        soln_op = self.interpo_soln_pre(rank)
 
 
         for time in self.time:
@@ -106,6 +138,7 @@ class avgcls(BaseAvg):
             # first average in space while loading each snapshot:
             # Construct field we need to average in span
             Mysoln = self.soln_loader(time)
+            Mysoln = self.interpo_soln(Mysoln, soln_op)
             soln = self.construct_soln_field(Mysoln, rank)
             #print(list(soln.keys()))
 
@@ -117,17 +150,15 @@ class avgcls(BaseAvg):
 
 
             # Acousitcs, just to take a 2d slice
-            for key in Mysoln.keys():
-                if key.split('_')[0] == 'tavg' and key.split('_')[1] == 'tet' and key.split('_')[-1] == f'p{rank}':
+            for key in soln.keys():
+                if key.split('_')[0] == 'tet' and key.split('_')[-1] == f'p{rank}':
                     keysoln = f'tet_{key.split("_")[-1]}'
-                    acoustic_soln[keysoln] = Mysoln[key][...,eindex[keysoln]]
+                    acoustic_soln[keysoln] = soln[key][...,eindex[keysoln]]
                     acoustic_soln[keysoln] = acoustic_soln[keysoln][cut_index[keysoln][0],:,cut_index[keysoln][1]]
-                    if self.dataprefix == 'soln':
-                        acoustic_soln[keysoln] = np.array(self.con_to_pri(acoustic_soln[keysoln])).swapaxes(0,1)
+
                     if time == self.time[0]:
                         keymesh = f'spt_tet_{key.split("_")[-1]}'
                         acoustic_mesh[keysoln] = ac_mesh[keysoln][cut_index[keysoln]]
-
 
 
             for i in range(comm.Get_size()):
@@ -150,6 +181,20 @@ class avgcls(BaseAvg):
                 print(time+' in '+self.time[-1])
                 if time == self.time[-1]:
                     print('waiting other ranks to finish')
+
+
+    def write_to_file(self,msh,dir):
+        with h5py.File(dir,'a') as f:
+            for key in msh.keys():
+                if len(msh[key].shape) > 2:
+                    msh[key] = msh[key].swapaxes(1,2)
+                #f.create_dataset(f'{key}', data=msh[key])
+                print(msh[key].shape)
+                f.create_dataset(f'{key}', data=msh[key].reshape(-1, msh[key].shape[-1]))
+
+            f.close()
+
+
 
 
 
@@ -210,19 +255,19 @@ class avgcls(BaseAvg):
             for key in Mysoln:
                 if len(key.split('_')) > 2:
                     _prefix, etype, prank = key.split('_')
-                    if etype in self.suffix_etype and prank == f'p{rank}':
+                    if prank == f'p{rank}':
                         # Mysoln has structure like: rho,u,v,w,p,du/dx,du/dy,dv/dx,dv/dy,dw/dx,dw/dy
                         soln[f'{etype}_{prank}'] = Mysoln[key]
                         reynold_stress = np.einsum('ijk,ilk->ijlk',Mysoln[key][:,1:4],Mysoln[key][:,1:4]).reshape(Mysoln[key].shape[0],-1,Mysoln[key].shape[-1])
                         soln[f'{etype}_{prank}'] = np.concatenate((soln[f'{etype}_{prank}'],reynold_stress),axis = 1)
 
-                        #print(soln[f'{etype}_{prank}'].shape)
+                        #print('aaaaaa',soln[f'{etype}_{prank}'].shape)
         else:
             # For the normal write out data with conservative format
             for key in Mysoln:
                 if len(key.split('_')) > 2:
                     _prefix, etype, prank = key.split('_')
-                    if etype in self.suffix_etype and prank == f'p{rank}':
+                    if prank == f'p{rank}':
                         # Mysoln has structure like: rho,rhou,rhov,rhow,E
                         soln[f'{etype}_{prank}'] = Mysoln[key]
                         soln[f'{etype}_{prank}'] = np.array(self.con_to_pri(soln[f'{etype}_{prank}'])).swapaxes(0,1)
@@ -302,16 +347,3 @@ class avgcls(BaseAvg):
 
         print(avgfield_writeout.keys())
         return avgfield_writeout
-
-
-
-
-    def write_to_file(self,msh,dir):
-        with h5py.File(dir,'a') as f:
-            for key in msh.keys():
-                if len(msh[key].shape) > 2:
-                    msh[key] = msh[key].swapaxes(1,2)
-                #f.create_dataset(f'{key}', data=msh[key])
-                f.create_dataset(f'{key}', data=msh[key].reshape(-1, msh[key].shape[-1]))
-
-            f.close()
